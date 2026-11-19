@@ -1,0 +1,850 @@
+{
+  "info": {
+    "name": "Centuro Global public API",
+    "description": "Requests and tests for the Centuro Global public API (`/v1`).\n\n1. Import this collection and an environment from the `postman/` folder.\n2. Set `clientId` and `clientSecret` in the environment (current value only, so they stay on your machine).\n3. Send any request. The collection gets and renews the access token for you.\n\nDocs and a TypeScript example: https://github.com/Centuro-Global/centuro-api-quickstart",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{accessToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Gets an access token with your API key (client credentials), and reuses it until a minute before it expires.",
+          "// Every request in this collection inherits it, so you never have to copy a token by hand.",
+          "const expiresAt = Number(pm.collectionVariables.get(\"accessTokenExpiresAt\") || 0);",
+          "if (pm.collectionVariables.get(\"accessToken\") && Date.now() < expiresAt) return;",
+          "",
+          "const clientId = pm.variables.get(\"clientId\");",
+          "const clientSecret = pm.variables.get(\"clientSecret\");",
+          "if (!clientId || !clientSecret) {",
+          "  throw new Error(\"Set clientId and clientSecret in your environment (see the README).\");",
+          "}",
+          "",
+          "pm.sendRequest({",
+          "  url: pm.variables.get(\"apiUrl\") + \"/oauth2/token\",",
+          "  method: \"POST\",",
+          "  header: {",
+          "    \"Content-Type\": \"application/x-www-form-urlencoded\",",
+          "    Authorization: \"Basic \" + btoa(encodeURIComponent(clientId) + \":\" + encodeURIComponent(clientSecret)),",
+          "  },",
+          "  body: { mode: \"urlencoded\", urlencoded: [",
+          "    { key: \"grant_type\", value: \"client_credentials\" },",
+          "    { key: \"scope\", value: pm.variables.get(\"scopes\") || \"cases:read\" },",
+          "  ] },",
+          "}, (err, res) => {",
+          "  if (err) throw err;",
+          "  if (res.code !== 200) throw new Error(\"Token request failed (\" + res.code + \"): \" + res.text());",
+          "  const body = res.json();",
+          "  pm.collectionVariables.set(\"accessToken\", body.access_token);",
+          "  pm.collectionVariables.set(\"accessTokenExpiresAt\", String(Date.now() + (body.expires_in - 60) * 1000));",
+          "});"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Checks every response makes: errors use problem details, and the rate-limit headers are present.",
+          "if (pm.response.code >= 400 && pm.response.code !== 401) {",
+          "  pm.test(\"Error is RFC 9457 problem details\", () => {",
+          "    pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\");",
+          "    const p = pm.response.json();",
+          "    pm.expect(p.type).to.match(/^https:\\/\\/developer\\.centuroglobal\\.com\\/errors\\//);",
+          "    pm.expect(p.status).to.eql(pm.response.code);",
+          "    pm.expect(p.title).to.be.a(\"string\");",
+          "  });",
+          "}"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "accessToken",
+      "value": ""
+    },
+    {
+      "key": "accessTokenExpiresAt",
+      "value": "0"
+    },
+    {
+      "key": "caseId",
+      "value": ""
+    },
+    {
+      "key": "caseTypeId",
+      "value": ""
+    },
+    {
+      "key": "nextCursor",
+      "value": ""
+    },
+    {
+      "key": "firstCaseIdOnPage1",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "description": "How to swap your API key for an access token. You don't need to run this: the collection does it for you.",
+      "item": [
+        {
+          "name": "Get an access token",
+          "description": "OAuth 2.0 client credentials. Your client ID and secret go in HTTP Basic auth. Ask for the scopes you need in `scope`: a token only carries the scopes you ask for.",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Carries the scopes asked for\", () => pm.expect(body.scope.split(\" \").sort()).to.eql(pm.variables.get(\"scopes\").split(\" \").sort()));",
+                  "pm.test(\"Returns a bearer token\", () => {",
+                  "  pm.expect(body.token_type).to.eql(\"Bearer\");",
+                  "  pm.expect(body.access_token).to.be.a(\"string\").and.not.empty;",
+                  "  pm.expect(body.expires_in).to.be.above(0);",
+                  "});",
+                  "pm.collectionVariables.set(\"accessToken\", body.access_token);",
+                  "pm.collectionVariables.set(\"accessTokenExpiresAt\", String(Date.now() + (body.expires_in - 60) * 1000));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{clientId}}",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "{{clientSecret}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "client_credentials"
+                },
+                {
+                  "key": "scope",
+                  "value": "{{scopes}}"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{apiUrl}}/oauth2/token",
+              "host": [
+                "{{apiUrl}}"
+              ],
+              "path": [
+                "oauth2",
+                "token"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Wrong secret is refused",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 401\", () => pm.response.to.have.status(401));",
+                  "pm.test(\"Error is invalid_client\", () => pm.expect(pm.response.json().error).to.eql(\"invalid_client\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{clientId}}",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "not-the-secret",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "client_credentials"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{apiUrl}}/oauth2/token",
+              "host": [
+                "{{apiUrl}}"
+              ],
+              "path": [
+                "oauth2",
+                "token"
+              ]
+            }
+          }
+        },
+        {
+          "name": "No token is 401",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 401\", () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "auth": {
+              "type": "noauth"
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{apiUrl}}/v1/me",
+              "host": [
+                "{{apiUrl}}"
+              ],
+              "path": [
+                "v1",
+                "me"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Me",
+      "item": [
+        {
+          "name": "Who am I",
+          "description": "Your key, its scopes and your company. A good first call to check everything is set up.",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const me = pm.response.json();",
+                  "pm.test(\"Is this key\", () => pm.expect(me.client.id).to.eql(pm.variables.get(\"clientId\")));",
+                  "pm.test(\"Has cases:read\", () => pm.expect(me.scopes).to.include(\"cases:read\"));",
+                  "pm.test(\"Belongs to a company\", () => pm.expect(me.corporate.name).to.be.a(\"string\").and.not.empty);",
+                  "pm.test(\"Has rate-limit headers\", () => {",
+                  "  pm.response.to.have.header(\"RateLimit-Limit\");",
+                  "  pm.response.to.have.header(\"RateLimit-Remaining\");",
+                  "  pm.response.to.have.header(\"RateLimit-Reset\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{apiUrl}}/v1/me",
+              "host": [
+                "{{apiUrl}}"
+              ],
+              "path": [
+                "v1",
+                "me"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Cases",
+      "item": [
+        {
+          "name": "List cases",
+          "description": "Newest first. Live cases only unless you pass `archived=true`. `limit` is 1–100, default 25.",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Body is the list envelope\", () => {",
+                  "  pm.expect(body.data).to.be.an(\"array\");",
+                  "  pm.expect(body.pagination.hasMore).to.be.a(\"boolean\");",
+                  "  if (body.pagination.hasMore) pm.expect(body.pagination.nextCursor).to.be.a(\"string\").and.not.empty;",
+                  "});",
+                  "",
+                  "pm.test(\"At most one case\", () => pm.expect(body.data.length).to.be.at.most(1));",
+                  "body.data.forEach((c) => {",
+                  "  pm.test(\"Case \" + c.id + \" has the documented shape\", () => {",
+                  "    pm.expect(c.id).to.match(/^case_/);",
+                  "    pm.expect(c.reference).to.be.a(\"string\");",
+                  "    pm.expect(c.caseType).to.be.a(\"string\");",
+                  "    pm.expect(c.applicant).to.be.an(\"object\");",
+                  "    pm.expect(c.stage).to.be.a(\"string\");",
+                  "    pm.expect(c.archived).to.eql(false);",
+                  "    pm.expect(Date.parse(c.createdAt)).to.not.be.NaN;",
+                  "    pm.expect(Date.parse(c.updatedAt)).to.not.be.NaN;",
+                  "  });",
+                  "});",
+                  "pm.collectionVariables.set(\"caseId\", body.data[0] ? body.data[0].id : \"\");",
+                  "pm.collectionVariables.set(\"firstCaseIdOnPage1\", body.data[0] ? body.data[0].id : \"\");",
+                  "pm.collectionVariables.set(\"nextCursor\", body.pagination.nextCursor || \"\");"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{apiUrl}}/v1/cases?limit=1",
+              "host": [
+                "{{apiUrl}}"
+              ],
+              "path": [
+                "v1",
+                "cases"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "1"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Next page",
+          "description": "Send `pagination.nextCursor` back as `cursor`, with the same filters, to get the next page.",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.collectionVariables.get(\"nextCursor\")) {",
+                  "  pm.test.skip(\"Next page (only one page of cases)\", () => {});",
+                  "  return;",
+                  "}",
+                  "",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Body is the list envelope\", () => {",
+                  "  pm.expect(body.data).to.be.an(\"array\");",
+                  "  pm.expect(body.pagination.hasMore).to.be.a(\"boolean\");",
+                  "  if (body.pagination.hasMore) pm.expect(body.pagination.nextCursor).to.be.a(\"string\").and.not.empty;",
+                  "});",
+                  "",
+                  "pm.test(\"Is a different page\", () => {",
+                  "  pm.expect(body.data[0].id).to.not.eql(pm.collectionVariables.get(\"firstCaseIdOnPage1\"));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{apiUrl}}/v1/cases?limit=1&cursor={{nextCursor}}",
+              "host": [
+                "{{apiUrl}}"
+              ],
+              "path": [
+                "v1",
+                "cases"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "1"
+                },
+                {
+                  "key": "cursor",
+                  "value": "{{nextCursor}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Archived cases",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Body is the list envelope\", () => {",
+                  "  pm.expect(body.data).to.be.an(\"array\");",
+                  "  pm.expect(body.pagination.hasMore).to.be.a(\"boolean\");",
+                  "  if (body.pagination.hasMore) pm.expect(body.pagination.nextCursor).to.be.a(\"string\").and.not.empty;",
+                  "});",
+                  "",
+                  "pm.test(\"All archived\", () => body.data.forEach((c) => pm.expect(c.archived).to.eql(true)));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{apiUrl}}/v1/cases?archived=true&limit=5",
+              "host": [
+                "{{apiUrl}}"
+              ],
+              "path": [
+                "v1",
+                "cases"
+              ],
+              "query": [
+                {
+                  "key": "archived",
+                  "value": "true"
+                },
+                {
+                  "key": "limit",
+                  "value": "5"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Changed since (for syncing)",
+          "description": "To keep your system in step: sort by `updatedAt`, page to the end, and next time ask for `updatedAt[gte]` the last `updatedAt` you saw.",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Body is the list envelope\", () => {",
+                  "  pm.expect(body.data).to.be.an(\"array\");",
+                  "  pm.expect(body.pagination.hasMore).to.be.a(\"boolean\");",
+                  "  if (body.pagination.hasMore) pm.expect(body.pagination.nextCursor).to.be.a(\"string\").and.not.empty;",
+                  "});",
+                  "",
+                  "pm.test(\"Oldest change first\", () => {",
+                  "  const times = body.data.map((c) => Date.parse(c.updatedAt));",
+                  "  pm.expect(times).to.eql([...times].sort((a, b) => a - b));",
+                  "});",
+                  "pm.test(\"All changed on or after the date\", () =>",
+                  "  body.data.forEach((c) => pm.expect(Date.parse(c.updatedAt)).to.be.at.least(Date.parse(\"2020-01-01T00:00:00Z\"))));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{apiUrl}}/v1/cases?updatedAt[gte]=2020-01-01T00:00:00Z&sort=updatedAt&limit=10",
+              "host": [
+                "{{apiUrl}}"
+              ],
+              "path": [
+                "v1",
+                "cases"
+              ],
+              "query": [
+                {
+                  "key": "updatedAt[gte]",
+                  "value": "2020-01-01T00:00:00Z"
+                },
+                {
+                  "key": "sort",
+                  "value": "updatedAt"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get a case",
+          "description": "One case, returned bare (no envelope). Run \"List cases\" first to fill `caseId`.",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.collectionVariables.get(\"caseId\")) {",
+                  "  pm.test.skip(\"Get a case (no cases to read)\", () => {});",
+                  "  return;",
+                  "}",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Is the case asked for\", () => pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get(\"caseId\")));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{apiUrl}}/v1/cases/{{caseId}}",
+              "host": [
+                "{{apiUrl}}"
+              ],
+              "path": [
+                "v1",
+                "cases",
+                "{{caseId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Unknown case is 404",
+          "description": "A case that doesn't exist and a case that belongs to another company look the same: 404.",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 404\", () => pm.response.to.have.status(404));",
+                  "pm.test(\"Code is not-found\", () => pm.expect(pm.response.json().type).to.match(/\\/not-found$/));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{apiUrl}}/v1/cases/case_00000000-0000-0000-0000-000000000000",
+              "host": [
+                "{{apiUrl}}"
+              ],
+              "path": [
+                "v1",
+                "cases",
+                "case_00000000-0000-0000-0000-000000000000"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Limit over 100 is 400",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 400\", () => pm.response.to.have.status(400));",
+                  "const p = pm.response.json();",
+                  "pm.test(\"Code is invalid-parameter\", () => pm.expect(p.type).to.match(/\\/invalid-parameter$/));",
+                  "pm.test(\"Names the parameter\", () => pm.expect(p.errors.map((e) => e.parameter)).to.include(\"limit\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{apiUrl}}/v1/cases?limit=101",
+              "host": [
+                "{{apiUrl}}"
+              ],
+              "path": [
+                "v1",
+                "cases"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "101"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Unknown parameter is 400",
+          "description": "Misspelt filters are rejected rather than ignored, so a typo can't silently return everything.",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"Names the parameter\", () => pm.expect(pm.response.json().errors.map((e) => e.parameter)).to.include(\"colour\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{apiUrl}}/v1/cases?colour=blue",
+              "host": [
+                "{{apiUrl}}"
+              ],
+              "path": [
+                "v1",
+                "cases"
+              ],
+              "query": [
+                {
+                  "key": "colour",
+                  "value": "blue"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Case types",
+      "item": [
+        {
+          "name": "List case types",
+          "description": "Reference data: the kinds of case Centuro handles. Filter with `category` or search with `q`.",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Body is the list envelope\", () => {",
+                  "  pm.expect(body.data).to.be.an(\"array\");",
+                  "  pm.expect(body.pagination.hasMore).to.be.a(\"boolean\");",
+                  "  if (body.pagination.hasMore) pm.expect(body.pagination.nextCursor).to.be.a(\"string\").and.not.empty;",
+                  "});",
+                  "",
+                  "pm.test(\"Has case types\", () => pm.expect(body.data.length).to.be.above(0));",
+                  "body.data.slice(0, 5).forEach((t) => {",
+                  "  pm.test(\"Case type \" + t.id + \" has the documented shape\", () => {",
+                  "    pm.expect(t.id).to.match(/^[a-z0-9_-]+\\.[a-z0-9_.-]+$/);",
+                  "    pm.expect(t.name).to.be.a(\"string\");",
+                  "    pm.expect(t.category.id).to.be.a(\"string\");",
+                  "  });",
+                  "});",
+                  "pm.test(\"Can be cached for an hour\", () => pm.expect(pm.response.headers.get(\"Cache-Control\")).to.include(\"max-age=3600\"));",
+                  "pm.collectionVariables.set(\"caseTypeId\", body.data[0] ? body.data[0].id : \"\");"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{apiUrl}}/v1/case-types?limit=100",
+              "host": [
+                "{{apiUrl}}"
+              ],
+              "path": [
+                "v1",
+                "case-types"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "100"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get a case type",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Is the type asked for\", () => pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get(\"caseTypeId\")));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{apiUrl}}/v1/case-types/{{caseTypeId}}",
+              "host": [
+                "{{apiUrl}}"
+              ],
+              "path": [
+                "v1",
+                "case-types",
+                "{{caseTypeId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Unknown case type is 404",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 404\", () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{apiUrl}}/v1/case-types/nothing.here",
+              "host": [
+                "{{apiUrl}}"
+              ],
+              "path": [
+                "v1",
+                "case-types",
+                "nothing.here"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

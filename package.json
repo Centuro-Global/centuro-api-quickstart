@@ -1,0 +1,27 @@
+{
+  "name": "centuro-api-quickstart",
+  "version": "0.1.0",
+  "description": "Clone, add your API key, and call the Centuro Global public API in under a minute.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20.12"
+  },
+  "scripts": {
+    "me": "tsx examples/me.ts",
+    "cases": "tsx examples/list-cases.ts",
+    "case": "tsx examples/get-case.ts",
+    "case-types": "tsx examples/list-case-types.ts",
+    "all-cases": "tsx examples/all-cases.ts",
+    "test:postman": "tsx scripts/run-postman.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/newman": "^5.3.6",
+    "@types/node": "^22.10.0",
+    "newman": "^6.2.3",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
+  }
+}
